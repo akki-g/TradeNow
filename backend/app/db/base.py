@@ -1,0 +1,33 @@
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase
+from datetime import datetime
+from sqlalchemy import Column, DateTime
+
+DATABASE_URL = "sample"
+
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=True,
+    future=False
+)
+
+
+async_session_maker = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
+
+class Base(DeclarativeBase):
+    pass
+
+class TimestampMixin:
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+
+async def get_session() -> AsyncSession:
+    async with async_session_maker() as session:
+        yield session
+
+

@@ -1,0 +1,21 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+# Database
+sqlalchemy
+asyncpg
+alembic
+# Data Processing
+pandas
+numpy
+yfinance
+# Technical Analysis
+TA-Lib
+# Validation
+pydantic
+pydantic-settings
+# Caching & Tasks
+redis
+# Auth
+python-jose[cryptography]
+passlib[bcrypt]

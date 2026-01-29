@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, BigInteger, Numeric, ForeignKey, DateTime, Index
+from sqlalchemy import Column, Integer, String, Boolean, BigInteger, Numeric, ForeignKey, DateTime, Index, text
 from sqlalchemy.orm import relationship
 from app.db.base import Base, TimestampMixin
 
@@ -40,7 +40,7 @@ class OHLCVDaily(Base):
     stock = relationship("Stock", back_populates="ohlcv_daily")
 
     __table_args__ = (
-        Index('idx_ohlcv_stock_time', 'stock_id', 'time')
+        Index('idx_ohlcv_stock_time', 'stock_id', 'time'),
     )
 
     def __repr__(self):

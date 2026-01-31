@@ -94,7 +94,7 @@ class StockDataService:
         #convert to resp format
 
         data_points = [
-            OHLCVDaily(
+            OHLCVPoint(
                 time=record.time,
                 open=float(record.open),
                 high=float(record.high),

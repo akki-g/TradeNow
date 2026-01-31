@@ -5,7 +5,7 @@ from alembic import context
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).reslove().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db.base import Base
 from app.models import *

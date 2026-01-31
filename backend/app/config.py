@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 from typing import Optional
 
 class Settings(BaseSettings):
-
+    VERSION: str = "0.0.1"
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
     DB_USER: str = "trading_user"

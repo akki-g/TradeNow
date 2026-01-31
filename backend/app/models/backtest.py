@@ -26,7 +26,7 @@ class BacktestResult(Base):
     __tablename__ = "backtest_results"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    run_id = Column(String(36), ForeignKey("backtest_run.id", ondelete="CASCADE"), nullable=False)  
+    run_id = Column(String(36), ForeignKey("backtest_runs.id", ondelete="CASCADE"), nullable=False)  
     total_return = Column(Numeric(10, 4))
     sharpe_ratio = Column(Numeric(8, 4))
     max_drawdown = Column(Numeric(10, 4))

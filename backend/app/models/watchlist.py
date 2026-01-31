@@ -12,7 +12,7 @@ class Watchlist(Base, TimestampMixin):
     name = Column(String(100), nullable=False)
 
     user = relationship("User", back_populates="watchlists")
-    items = relationship("WachlistItem", back_populates="watchlist", cascade="all, delete-orphan")
+    items = relationship("WatchlistItem", back_populates="watchlist", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Watchlist {self.name}>"
@@ -31,4 +31,3 @@ class WatchlistItem(Base):
         return f"<WatchlistItem {self.stock_id} in {self.watchlist_id}"
     
 
-    

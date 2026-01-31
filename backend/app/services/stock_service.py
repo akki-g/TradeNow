@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert
+from sqlalchemy import select, insert, func
 from sqlalchemy.dialects.postgresql import insert 
 import asyncio
 
@@ -77,7 +77,7 @@ class StockDataService:
         needs_fetch = force_refresh or await self._needs_data_fetch(stock.id, start_date, end_date)
 
         if needs_fetch:
-            await self._fetch_and_store_ohlcv(stock, start_date, end_date)
+            await self._fetch_and_store_ohlcv(stock, period, start_date, end_date)
 
         result = await self.session.execute(
             select(OHLCVDaily)
@@ -89,7 +89,7 @@ class StockDataService:
             .order_by(OHLCVDaily.time)
         )
 
-        ohlcv_records = result.scalar().all()
+        ohlcv_records = result.scalars().all()
 
         #convert to resp format
 
@@ -138,7 +138,7 @@ class StockDataService:
         return end_date - delta
     
 
-    async def _fetch_and_store_data(self, stock: Stock, period: str, start_date: date, end_date: date):
+    async def _fetch_and_store_ohlcv(self, stock: Stock, period: str, start_date: date, end_date: date):
 
         def _fetch():
             ticker=yf.Ticker(stock.ticker)
@@ -216,3 +216,21 @@ class StockDataService:
             change=change,
             change_percent=change_percent
         )
+    
+
+    async def _needs_data_fetch(self, stock_id: int, start_date: date, end_date: date) -> bool:
+        
+        result = await self.session.execute(
+            select(func.min(OHLCVDaily.time), func.max(OHLCVDaily.time))
+            .where(OHLCVDaily.stock_id == stock_id)
+        )
+
+        min_date, max_date = result.first()
+
+        if not min_date or not max_date:
+            return True
+        
+        if start_date < min_date.date() or end_date > max_date.date():
+            return True
+        
+        return False

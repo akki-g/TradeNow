@@ -6,12 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, func
 from sqlalchemy.dialects.postgresql import insert 
 import asyncio
-
+import logging
 from app.models.stock import Stock, OHLCVDaily
 from app.schemas.stock import OHLCVResponse, OHLCVPoint, StockInfo
 
+logger = logging.getLogger(__name__)
 
 class StockDataService:
+
+    BATCH_SIZE = 500
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -158,34 +162,44 @@ class StockDataService:
         records = []    
         
         for idx, row in df.iterrows():
+            dt = idx.to_pydatetime()
+            if dt.tzinfo is not None:
+                dt = idx.tz_localize(None).to_pydatetime()
+            else:
+                dt = idx.to_pydatetime()
+
             records.append({
-                'time': idx.to_pydatetime(),
+                'time': dt,
                 'stock_id': stock.id,
                 'open': float(row['Open']),
                 'high': float(row['High']),
                 'low': float(row['Low']),
                 'close': float(row['Close']),
-                'adj_close': float(row['Close']),
+                'adj_close': float(row['Adj Close']) if 'Adj Close' in row else float(row['Close']),
                 'volume': int(row['Volume'])
             })
 
         if not records:
             return
     
+        total_records = len(records)
+        logger.info(f"Inserting {total_records} in batches of {self.BATCH_SIZE}")
 
-        stmt = insert(OHLCVDaily).values(records)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=['stock_id', 'time'],
-            set_ = {
-                'open': stmt.excluded.open,
-                'high': stmt.excluded.high,
-                'low': stmt.excluded.low,
-                'close': stmt.excluded.close,
-                'adj_close': stmt.excluded.adj_close,
-                'volume': stmt.excluded.volume
-            }
-        )
-        await self.session.execute(stmt)
+        for i in range(0, total_records, self.BATCH_SIZE):
+            batch = records[i:i+self.BATCH_SIZE]
+            stmt = insert(OHLCVDaily).values(batch)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['stock_id', 'time'],
+                set_ = {
+                    'open': stmt.excluded.open,
+                    'high': stmt.excluded.high,
+                    'low': stmt.excluded.low,
+                    'close': stmt.excluded.close,
+                    'adj_close': stmt.excluded.adj_close,
+                    'volume': stmt.excluded.volume
+                }
+            )
+            await self.session.execute(stmt)
         await self.session.commit()
 
 
@@ -225,12 +239,17 @@ class StockDataService:
             .where(OHLCVDaily.stock_id == stock_id)
         )
 
-        min_date, max_date = result.first()
+        row = result.first()
+
+        min_date, max_date = row if row else (None, None)
 
         if not min_date or not max_date:
             return True
         
-        if start_date < min_date.date() or end_date > max_date.date():
+        min_date_val = min_date.date() if hasattr(min_date, 'date') else min_date
+        max_date_val = max_date.date() if hasattr(max_date, 'date') else max_date
+        
+        if start_date < min_date_val or end_date > max_date_val:
             return True
         
         return False

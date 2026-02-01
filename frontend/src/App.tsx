@@ -23,6 +23,16 @@ function App() {
   // Fetch stock data based on selected ticker and period
   const { data, loading, error } = useStockData(ticker, period);
 
+  console.log('[App] Render state:', {
+    ticker,
+    period,
+    loading,
+    hasData: !!data,
+    dataPoints: data?.data?.length || 0,
+    hasError: !!error,
+    errorMessage: error?.message,
+  });
+
   return (
     <DashboardLayout
       header={

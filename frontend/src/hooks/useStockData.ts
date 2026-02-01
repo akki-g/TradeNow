@@ -42,7 +42,40 @@ export function useStockData(ticker: string, period: Period): UseStockDataReturn
     error: null,
   });
 
-  const fetchData = useCallback(async () => {
+  // Refetch function for manual refresh
+  const refetch = useCallback(async () => {
+    if (!ticker) {
+      setState({
+        data: null,
+        loading: false,
+        error: { message: 'Ticker symbol is required' },
+      });
+      return;
+    }
+
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+
+    try {
+      console.log('[useStockData] Manual refetch for', { ticker, period });
+      const response = await fetchOHLCV(ticker, period);
+      setState({ data: response, loading: false, error: null });
+    } catch (err) {
+      const apiError = err as APIError;
+      console.error('[useStockData] Refetch error:', apiError);
+      setState({
+        data: null,
+        loading: false,
+        error: {
+          message: apiError.message || 'Failed to fetch stock data',
+          status: apiError.status,
+          details: apiError.details,
+        },
+      });
+    }
+  }, [ticker, period]);
+
+  // Auto-fetch on ticker/period change
+  useEffect(() => {
     if (!ticker) {
       setState({
         data: null,
@@ -54,65 +87,62 @@ export function useStockData(ticker: string, period: Period): UseStockDataReturn
 
     const abortController = new AbortController();
 
-    setState((prev) => ({
-      ...prev,
-      loading: true,
-      error: null,
-    }));
+    const fetchData = async () => {
+      setState((prev) => ({
+        ...prev,
+        loading: true,
+        error: null,
+      }));
 
-    try {
-      const response = await fetchOHLCV(ticker, period, abortController.signal);
+      try {
+        console.log('[useStockData] Fetching data for', { ticker, period });
+        const response = await fetchOHLCV(ticker, period, abortController.signal);
 
-      // Only update state if request wasn't aborted
-      if (!abortController.signal.aborted) {
-        setState({
-          data: response,
-          loading: false,
-          error: null,
+        console.log('[useStockData] Data fetched successfully', {
+          ticker: response.ticker,
+          dataPoints: response.data.length,
+          period: response.period,
         });
-      }
-    } catch (err) {
-      // Ignore abort errors - they're expected when switching tickers
-      if ((err as Error).name === 'AbortError') {
-        return;
-      }
 
-      const apiError = err as APIError;
-      if (!abortController.signal.aborted) {
-        setState({
-          data: null,
-          loading: false,
-          error: {
-            message: apiError.message || 'Failed to fetch stock data',
-            status: apiError.status,
-            details: apiError.details,
-          },
+        if (!abortController.signal.aborted) {
+          setState({
+            data: response,
+            loading: false,
+            error: null,
+          });
+        }
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') {
+          return;
+        }
+
+        const apiError = err as APIError;
+        console.error('[useStockData] Error fetching data:', {
+          ticker,
+          period,
+          error: apiError,
         });
-      }
-    }
 
-    // Return cleanup function
+        if (!abortController.signal.aborted) {
+          setState({
+            data: null,
+            loading: false,
+            error: {
+              message: apiError.message || 'Failed to fetch stock data',
+              status: apiError.status,
+              details: apiError.details,
+            },
+          });
+        }
+      }
+    };
+
+    fetchData();
+
     return () => {
       abortController.abort();
     };
   }, [ticker, period]);
-
-  // Wrapper for refetch that doesn't expose the cleanup function
-  const refetch = useCallback(async () => {
-    await fetchData();
-  }, [fetchData]);
-
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-
-    fetchData().then((cleanupFn) => {
-      cleanup = cleanupFn;
-    });
-
-    return () => {
-      cleanup?.();
-    };
-  }, [fetchData]);
 
   return {
     data: state.data,

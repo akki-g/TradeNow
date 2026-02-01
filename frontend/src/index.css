@@ -22,13 +22,24 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Reset body for full viewport layout */
+/* Establish clean 100% height chain for flexbox layout */
+html,
 body {
+  height: 100%;
+  width: 100%;
   margin: 0;
   padding: 0;
-  min-width: 320px;
-  min-height: 100vh;
   overflow: hidden;
+}
+
+body {
+  min-width: 320px;
+}
+
+/* Root container must fill viewport for flexbox height propagation */
+#root {
+  height: 100%;
+  width: 100%;
 }
 
 /* Apply monospace font to numerical data */

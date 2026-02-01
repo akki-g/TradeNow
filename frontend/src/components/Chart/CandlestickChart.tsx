@@ -4,7 +4,7 @@
  * Uses TradingView's lightweight-charts library
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo, memo } from 'react';
 import {
   createChart,
   CrosshairMode,
@@ -65,17 +65,34 @@ const convertToVolumeData = (data: OHLCVResponse): HistogramData[] => {
   });
 };
 
-export function CandlestickChart({ data, loading, error }: CandlestickChartProps) {
+function CandlestickChartComponent({ data, loading, error }: CandlestickChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const [isChartReady, setIsChartReady] = useState(false);
 
+  // Memoize data conversion to avoid unnecessary recalculations
+  const candlestickData = useMemo(() => {
+    if (!data || data.data.length === 0) return [];
+    return convertToCandlestickData(data);
+  }, [data]);
+
+  const volumeData = useMemo(() => {
+    if (!data || data.data.length === 0) return [];
+    return convertToVolumeData(data);
+  }, [data]);
+
   // Initialize chart on mount
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    console.log('[CandlestickChart] Initializing chart');
 
+    if (!chartContainerRef.current) {
+      console.error('[CandlestickChart] Chart container ref is null');
+      return;
+    }
+
+    console.log('[CandlestickChart] Creating chart instance');
     const chart = createChart(chartContainerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: '#0f0f0f' },
@@ -165,10 +182,13 @@ export function CandlestickChart({ data, loading, error }: CandlestickChartProps
     volumeSeriesRef.current = volumeSeries;
     setIsChartReady(true);
 
+    console.log('[CandlestickChart] Chart initialized successfully');
+
     // Handle resize
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
         const { width, height } = chartContainerRef.current.getBoundingClientRect();
+        console.log('[CandlestickChart] Resizing chart', { width, height });
         chartRef.current.applyOptions({
           width: Math.floor(width),
           height: Math.floor(height),
@@ -178,6 +198,9 @@ export function CandlestickChart({ data, loading, error }: CandlestickChartProps
 
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(chartContainerRef.current);
+
+    // Trigger initial resize
+    handleResize();
 
     // Cleanup on unmount
     return () => {
@@ -194,13 +217,24 @@ export function CandlestickChart({ data, loading, error }: CandlestickChartProps
 
   // Update chart data when data prop changes
   useEffect(() => {
-    if (!isChartReady || !data || !candlestickSeriesRef.current || !volumeSeriesRef.current) {
+    console.log('[CandlestickChart] Data update triggered', {
+      isChartReady,
+      candlestickDataLength: candlestickData.length,
+      volumeDataLength: volumeData.length,
+      hasCandlestickSeries: !!candlestickSeriesRef.current,
+      hasVolumeSeries: !!volumeSeriesRef.current,
+    });
+
+    if (!isChartReady || candlestickData.length === 0 || !candlestickSeriesRef.current || !volumeSeriesRef.current) {
+      console.log('[CandlestickChart] Skipping data update - prerequisites not met');
       return;
     }
 
     try {
-      const candlestickData = convertToCandlestickData(data);
-      const volumeData = convertToVolumeData(data);
+      console.log('[CandlestickChart] Setting chart data', {
+        candlestickPoints: candlestickData.length,
+        volumePoints: volumeData.length,
+      });
 
       candlestickSeriesRef.current.setData(candlestickData);
       volumeSeriesRef.current.setData(volumeData);
@@ -209,10 +243,12 @@ export function CandlestickChart({ data, loading, error }: CandlestickChartProps
       if (chartRef.current) {
         chartRef.current.timeScale().fitContent();
       }
+
+      console.log('[CandlestickChart] Chart data updated successfully');
     } catch (err) {
-      console.error('Failed to update chart data:', err);
+      console.error('[CandlestickChart] Failed to update chart data:', err);
     }
-  }, [data, isChartReady]);
+  }, [candlestickData, volumeData, isChartReady]);
 
   // Loading state
   if (loading) {
@@ -288,3 +324,6 @@ export function CandlestickChart({ data, loading, error }: CandlestickChartProps
     </div>
   );
 }
+
+// Export memoized component to prevent unnecessary re-renders
+export const CandlestickChart = memo(CandlestickChartComponent);

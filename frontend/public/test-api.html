@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Connection Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #0f0f0f;
+            color: #e5e5e5;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-result {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border: 1px solid #262626;
+        }
+        .success {
+            background: rgba(34, 197, 94, 0.1);
+            border-color: #22c55e;
+        }
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: #ef4444;
+        }
+        .pending {
+            background: rgba(59, 130, 246, 0.1);
+            border-color: #3b82f6;
+        }
+        pre {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: monospace;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+    </style>
+</head>
+<body>
+    <h1>Trading Platform API Test</h1>
+    <p>Testing connection to backend API at <strong id="api-url">http://localhost:8000</strong></p>
+
+    <button onclick="runTests()">Run All Tests</button>
+    <button onclick="location.reload()">Clear Results</button>
+
+    <div id="test-results"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        const resultsDiv = document.getElementById('test-results');
+
+        function addResult(name, status, message, data = null) {
+            const div = document.createElement('div');
+            div.className = `test-result ${status}`;
+
+            let html = `<h3>${name}</h3><p>${message}</p>`;
+            if (data) {
+                html += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            }
+
+            div.innerHTML = html;
+            resultsDiv.appendChild(div);
+        }
+
+        async function testHealthCheck() {
+            try {
+                addResult('Health Check', 'pending', 'Testing /health endpoint...');
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    addResult('Health Check', 'success', 'Backend is healthy!', data);
+                    return true;
+                } else {
+                    addResult('Health Check', 'error', `HTTP ${response.status}`, data);
+                    return false;
+                }
+            } catch (error) {
+                addResult('Health Check', 'error', `Connection failed: ${error.message}`);
+                return false;
+            }
+        }
+
+        async function testOHLCVEndpoint() {
+            try {
+                addResult('OHLCV Data', 'pending', 'Fetching AAPL 1y data...');
+                const response = await fetch(`${API_BASE}/api/v1/stocks/AAPL/ohlcv?period=1y`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    const summary = {
+                        ticker: data.ticker,
+                        period: data.period,
+                        records: data.metadata.records,
+                        start_date: data.metadata.start_date,
+                        end_date: data.metadata.end_date,
+                        first_candle: data.data[0],
+                        last_candle: data.data[data.data.length - 1]
+                    };
+                    addResult('OHLCV Data', 'success', `Received ${data.data.length} candles`, summary);
+                    return true;
+                } else {
+                    addResult('OHLCV Data', 'error', `HTTP ${response.status}`, data);
+                    return false;
+                }
+            } catch (error) {
+                addResult('OHLCV Data', 'error', `Fetch failed: ${error.message}`);
+                return false;
+            }
+        }
+
+        async function testCORSHeaders() {
+            try {
+                addResult('CORS Check', 'pending', 'Checking CORS headers...');
+                const response = await fetch(`${API_BASE}/health`);
+
+                const corsHeaders = {
+                    'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
+                    'Access-Control-Allow-Credentials': response.headers.get('Access-Control-Allow-Credentials'),
+                };
+
+                if (corsHeaders['Access-Control-Allow-Origin']) {
+                    addResult('CORS Check', 'success', 'CORS headers present', corsHeaders);
+                    return true;
+                } else {
+                    addResult('CORS Check', 'error', 'CORS headers missing', corsHeaders);
+                    return false;
+                }
+            } catch (error) {
+                addResult('CORS Check', 'error', `Check failed: ${error.message}`);
+                return false;
+            }
+        }
+
+        async function runTests() {
+            resultsDiv.innerHTML = '';
+            addResult('Test Suite', 'pending', 'Running all tests...');
+
+            const healthOk = await testHealthCheck();
+            if (!healthOk) {
+                addResult('Test Suite', 'error', 'Backend is not running. Please start the backend server.');
+                return;
+            }
+
+            await testCORSHeaders();
+            await testOHLCVEndpoint();
+
+            addResult('Test Suite', 'success', 'All tests completed!');
+        }
+
+        // Auto-run tests on page load
+        window.addEventListener('load', () => {
+            setTimeout(runTests, 100);
+        });
+    </script>
+</body>
+</html>

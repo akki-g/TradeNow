@@ -1,10 +1,15 @@
 /**
  * Professional Candlestick Chart with Volume Histogram
  * Built for institutional-grade trading platforms
- * Uses TradingView's lightweight-charts library
+ * Uses TradingView's lightweight-charts library v5
+ * 
+ * FIXED VERSION - Addresses:
+ * 1. Chart dimensions must be explicitly set at creation
+ * 2. Volume series must use a separate price scale properly
+ * 3. Container must have explicit height for ResizeObserver to work
  */
 
-import { useEffect, useRef, useState, useMemo, memo } from 'react';
+import { useEffect, useRef, useState, useMemo, memo, useCallback } from 'react';
 import {
   createChart,
   CrosshairMode,
@@ -83,6 +88,22 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
     return convertToVolumeData(data);
   }, [data]);
 
+  // Resize handler - defined outside useEffect so it can be reused
+  const handleResize = useCallback(() => {
+    if (!chartContainerRef.current || !chartRef.current) return;
+    
+    const { width, height } = chartContainerRef.current.getBoundingClientRect();
+    console.log('[CandlestickChart] Resize detected:', { width, height });
+    
+    // Only resize if we have valid dimensions
+    if (width > 0 && height > 0) {
+      chartRef.current.applyOptions({
+        width: Math.floor(width),
+        height: Math.floor(height),
+      });
+    }
+  }, []);
+
   // Initialize chart on mount
   useEffect(() => {
     console.log('[CandlestickChart] Initializing chart');
@@ -92,8 +113,18 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
       return;
     }
 
-    console.log('[CandlestickChart] Creating chart instance');
+    // CRITICAL: Get dimensions BEFORE creating chart
+    // Use fallback dimensions if container not yet sized
+    const rect = chartContainerRef.current.getBoundingClientRect();
+    const initialWidth = rect.width > 0 ? Math.floor(rect.width) : 800;
+    const initialHeight = rect.height > 0 ? Math.floor(rect.height) : 500;
+    
+    console.log('[CandlestickChart] Creating chart with dimensions:', { initialWidth, initialHeight });
+
+    // Create chart with EXPLICIT dimensions - this is critical!
     const chart = createChart(chartContainerRef.current, {
+      width: initialWidth,
+      height: initialHeight,
       layout: {
         background: { type: ColorType.Solid, color: '#0f0f0f' },
         textColor: '#a3a3a3',
@@ -130,7 +161,7 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
         borderColor: '#262626',
         scaleMargins: {
           top: 0.1,
-          bottom: 0.25, // Leave room for volume
+          bottom: 0.2, // Leave room for volume at bottom
         },
       },
       handleScroll: {
@@ -146,7 +177,9 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
       },
     });
 
-    // Add candlestick series (v5 API)
+    console.log('[CandlestickChart] Chart instance created');
+
+    // Add candlestick series FIRST (v5 API)
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#22c55e',
       downColor: '#ef4444',
@@ -161,15 +194,18 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
       },
     });
 
-    // Add volume histogram series (v5 API)
+    console.log('[CandlestickChart] Candlestick series added');
+
+    // Add volume histogram series on a SEPARATE price scale (v5 API)
+    // Using 'volume' as the priceScaleId to create a dedicated scale
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: {
         type: 'volume',
       },
-      priceScaleId: '', // Separate scale for volume
+      priceScaleId: 'volume', // Use a named scale instead of empty string
     });
 
-    // Position volume in bottom 20% of chart
+    // Configure the volume price scale to occupy bottom 20% of chart
     volumeSeries.priceScale().applyOptions({
       scaleMargins: {
         top: 0.8,
@@ -177,33 +213,35 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
       },
     });
 
+    console.log('[CandlestickChart] Volume series added');
+
     chartRef.current = chart;
     candlestickSeriesRef.current = candlestickSeries;
     volumeSeriesRef.current = volumeSeries;
-    setIsChartReady(true);
 
-    console.log('[CandlestickChart] Chart initialized successfully');
+    // Set up ResizeObserver for responsive sizing
+    const resizeObserver = new ResizeObserver((entries) => {
+      // Use requestAnimationFrame to avoid layout thrashing
+      window.requestAnimationFrame(() => {
+        if (!entries || !entries.length) return;
+        handleResize();
+      });
+    });
 
-    // Handle resize
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        const { width, height } = chartContainerRef.current.getBoundingClientRect();
-        console.log('[CandlestickChart] Resizing chart', { width, height });
-        chartRef.current.applyOptions({
-          width: Math.floor(width),
-          height: Math.floor(height),
-        });
-      }
-    };
-
-    const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(chartContainerRef.current);
 
-    // Trigger initial resize
-    handleResize();
+    // Mark chart as ready AFTER a small delay to ensure DOM is settled
+    // This helps with the initial resize
+    const readyTimeout = setTimeout(() => {
+      handleResize(); // Force initial resize
+      setIsChartReady(true);
+      console.log('[CandlestickChart] Chart ready');
+    }, 100);
 
     // Cleanup on unmount
     return () => {
+      console.log('[CandlestickChart] Cleaning up');
+      clearTimeout(readyTimeout);
       resizeObserver.disconnect();
       if (chartRef.current) {
         chartRef.current.remove();
@@ -213,11 +251,11 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
       volumeSeriesRef.current = null;
       setIsChartReady(false);
     };
-  }, []);
+  }, [handleResize]);
 
   // Update chart data when data prop changes
   useEffect(() => {
-    console.log('[CandlestickChart] Data update triggered', {
+    console.log('[CandlestickChart] Data update check:', {
       isChartReady,
       candlestickDataLength: candlestickData.length,
       volumeDataLength: volumeData.length,
@@ -225,17 +263,30 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
       hasVolumeSeries: !!volumeSeriesRef.current,
     });
 
-    if (!isChartReady || candlestickData.length === 0 || !candlestickSeriesRef.current || !volumeSeriesRef.current) {
-      console.log('[CandlestickChart] Skipping data update - prerequisites not met');
+    if (!isChartReady) {
+      console.log('[CandlestickChart] Chart not ready, skipping data update');
+      return;
+    }
+
+    if (candlestickData.length === 0) {
+      console.log('[CandlestickChart] No data to display');
+      return;
+    }
+
+    if (!candlestickSeriesRef.current || !volumeSeriesRef.current) {
+      console.log('[CandlestickChart] Series refs not available');
       return;
     }
 
     try {
-      console.log('[CandlestickChart] Setting chart data', {
-        candlestickPoints: candlestickData.length,
-        volumePoints: volumeData.length,
+      console.log('[CandlestickChart] Setting data:', {
+        candlesticks: candlestickData.length,
+        volumes: volumeData.length,
+        firstCandle: candlestickData[0],
+        lastCandle: candlestickData[candlestickData.length - 1],
       });
 
+      // Set the data
       candlestickSeriesRef.current.setData(candlestickData);
       volumeSeriesRef.current.setData(volumeData);
 
@@ -244,7 +295,7 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
         chartRef.current.timeScale().fitContent();
       }
 
-      console.log('[CandlestickChart] Chart data updated successfully');
+      console.log('[CandlestickChart] Data updated successfully');
     } catch (err) {
       console.error('[CandlestickChart] Failed to update chart data:', err);
     }
@@ -291,7 +342,7 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
     );
   }
 
-  // Empty state
+  // Empty state - show when no data and not loading
   if (!data || data.data.length === 0) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-[#0f0f0f]">
@@ -318,9 +369,26 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
   }
 
   // Chart view
+  // CRITICAL: The container needs a fixed height or use absolute positioning
   return (
-    <div className="w-full h-full relative bg-[#0f0f0f]">
-      <div ref={chartContainerRef} className="w-full h-full" />
+    <div 
+      style={{ 
+        width: '100%', 
+        height: '100%', 
+        position: 'relative',
+        backgroundColor: '#0f0f0f',
+      }}
+    >
+      <div 
+        ref={chartContainerRef}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+        }}
+      />
     </div>
   );
 }

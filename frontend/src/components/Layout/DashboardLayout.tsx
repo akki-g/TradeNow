@@ -24,6 +24,14 @@ export interface DashboardLayoutProps {
  * - Main content area for charts and data visualization
  * - Proper spacing and borders matching financial terminal aesthetics
  *
+ * CRITICAL CSS NOTES:
+ * - The main element uses `min-h-0` which is essential for flex children
+ *   to properly calculate percentage-based heights
+ * - Without `min-h-0`, flex items have implicit `min-height: auto` which
+ *   prevents them from shrinking below content size, breaking height calculations
+ * - The main element also uses `relative` positioning so absolute children
+ *   can properly size themselves
+ *
  * @example
  * ```tsx
  * <DashboardLayout
@@ -43,8 +51,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, head
         </header>
       )}
 
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-auto bg-trading-bg">
+      {/* 
+        Main Content Area
+        CRITICAL: min-h-0 allows flex item to shrink below content size
+        This is essential for chart components that need percentage heights
+        The 'relative' class establishes positioning context for absolute children
+      */}
+      <main className="flex-1 min-h-0 relative overflow-hidden bg-trading-bg">
         {children}
       </main>
     </div>

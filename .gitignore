@@ -9,3 +9,5 @@ frontend/dist/
 *.pdf
 
 *.env
+
+frontend/output/

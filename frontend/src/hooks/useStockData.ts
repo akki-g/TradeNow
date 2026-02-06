@@ -17,6 +17,24 @@ interface UseStockDataReturn extends UseStockDataState {
   refetch: () => Promise<void>;
 }
 
+const MISSING_TICKER_ERROR: APIError = { message: 'Ticker symbol is required' };
+
+function normalizeAPIError(err: unknown): APIError {
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    const candidate = err as APIError;
+    return {
+      message: candidate.message || 'Failed to fetch stock data',
+      status: candidate.status,
+      details: candidate.details ?? err,
+    };
+  }
+
+  return {
+    message: 'Failed to fetch stock data',
+    details: err,
+  };
+}
+
 /**
  * Custom hook for fetching and managing stock OHLCV data
  *
@@ -36,6 +54,9 @@ interface UseStockDataReturn extends UseStockDataState {
  * ```
  */
 export function useStockData(ticker: string, period: Period): UseStockDataReturn {
+  const normalizedTicker = ticker.trim().toUpperCase();
+  const missingTicker = normalizedTicker.length === 0;
+
   const [state, setState] = useState<UseStockDataState>({
     data: null,
     loading: false,
@@ -44,46 +65,35 @@ export function useStockData(ticker: string, period: Period): UseStockDataReturn
 
   // Refetch function for manual refresh
   const refetch = useCallback(async () => {
-    if (!ticker) {
-      setState({
-        data: null,
+    if (missingTicker) {
+      setState((prev) => ({
+        ...prev,
         loading: false,
-        error: { message: 'Ticker symbol is required' },
-      });
+        error: MISSING_TICKER_ERROR,
+      }));
       return;
     }
 
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      console.log('[useStockData] Manual refetch for', { ticker, period });
-      const response = await fetchOHLCV(ticker, period);
+      const response = await fetchOHLCV(normalizedTicker, period);
       setState({ data: response, loading: false, error: null });
     } catch (err) {
-      const apiError = err as APIError;
-      console.error('[useStockData] Refetch error:', apiError);
-      setState({
-        data: null,
+      if ((err as Error).name === 'AbortError') return;
+
+      const apiError = normalizeAPIError(err);
+      setState((prev) => ({
+        ...prev,
         loading: false,
-        error: {
-          message: apiError.message || 'Failed to fetch stock data',
-          status: apiError.status,
-          details: apiError.details,
-        },
-      });
+        error: apiError,
+      }));
     }
-  }, [ticker, period]);
+  }, [missingTicker, normalizedTicker, period]);
 
   // Auto-fetch on ticker/period change
   useEffect(() => {
-    if (!ticker) {
-      setState({
-        data: null,
-        loading: false,
-        error: { message: 'Ticker symbol is required' },
-      });
-      return;
-    }
+    if (missingTicker) return;
 
     const abortController = new AbortController();
 
@@ -95,14 +105,7 @@ export function useStockData(ticker: string, period: Period): UseStockDataReturn
       }));
 
       try {
-        console.log('[useStockData] Fetching data for', { ticker, period });
-        const response = await fetchOHLCV(ticker, period, abortController.signal);
-
-        console.log('[useStockData] Data fetched successfully', {
-          ticker: response.ticker,
-          dataPoints: response.data.length,
-          period: response.period,
-        });
+        const response = await fetchOHLCV(normalizedTicker, period, abortController.signal);
 
         if (!abortController.signal.aborted) {
           setState({
@@ -116,23 +119,14 @@ export function useStockData(ticker: string, period: Period): UseStockDataReturn
           return;
         }
 
-        const apiError = err as APIError;
-        console.error('[useStockData] Error fetching data:', {
-          ticker,
-          period,
-          error: apiError,
-        });
+        const apiError = normalizeAPIError(err);
 
         if (!abortController.signal.aborted) {
-          setState({
-            data: null,
+          setState((prev) => ({
+            ...prev,
             loading: false,
-            error: {
-              message: apiError.message || 'Failed to fetch stock data',
-              status: apiError.status,
-              details: apiError.details,
-            },
-          });
+            error: apiError,
+          }));
         }
       }
     };
@@ -142,12 +136,12 @@ export function useStockData(ticker: string, period: Period): UseStockDataReturn
     return () => {
       abortController.abort();
     };
-  }, [ticker, period]);
+  }, [missingTicker, normalizedTicker, period]);
 
   return {
-    data: state.data,
-    loading: state.loading,
-    error: state.error,
+    data: missingTicker ? null : state.data,
+    loading: missingTicker ? false : state.loading,
+    error: missingTicker ? MISSING_TICKER_ERROR : state.error,
     refetch,
   };
 }

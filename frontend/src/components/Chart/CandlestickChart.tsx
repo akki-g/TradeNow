@@ -1,30 +1,42 @@
 /**
- * Professional Candlestick Chart with Volume Histogram
- * Built for institutional-grade trading platforms
- * Uses TradingView's lightweight-charts library v5
- * 
- * FIXED VERSION - Addresses:
- * 1. Chart dimensions must be explicitly set at creation
- * 2. Volume series must use a separate price scale properly
- * 3. Container must have explicit height for ResizeObserver to work
+ * Candlestick + volume chart built on Apache ECharts.
+ *
+ * Why ECharts:
+ * - Rich configuration surface for future overlays/indicators/annotations.
+ * - Mature interaction model (linked crosshair, zoom controls, tooltips).
+ * - Strong TypeScript support and canvas rendering performance.
  */
 
-import { useEffect, useRef, useState, useMemo, memo, useCallback } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
+import { use as registerEChartsModules, init, type ComposeOption, type EChartsType } from 'echarts/core';
 import {
-  createChart,
-  CrosshairMode,
-  ColorType,
-  CandlestickSeries,
-  HistogramSeries,
-} from 'lightweight-charts';
-import type {
-  IChartApi,
-  ISeriesApi,
-  CandlestickData,
-  HistogramData,
-  UTCTimestamp,
-} from 'lightweight-charts';
-import type { OHLCVResponse, APIError } from '../../types/stock';
+  BarChart,
+  CandlestickChart as EChartsCandlestickChart,
+  type BarSeriesOption,
+  type CandlestickSeriesOption,
+} from 'echarts/charts';
+import {
+  AxisPointerComponent,
+  DataZoomComponent,
+  GridComponent,
+  TooltipComponent,
+  type AxisPointerComponentOption,
+  type DataZoomComponentOption,
+  type GridComponentOption,
+  type TooltipComponentOption,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+import type { APIError, OHLCVResponse } from '../../types/stock';
+
+registerEChartsModules([
+  GridComponent,
+  TooltipComponent,
+  DataZoomComponent,
+  AxisPointerComponent,
+  EChartsCandlestickChart,
+  BarChart,
+  CanvasRenderer,
+]);
 
 interface CandlestickChartProps {
   data: OHLCVResponse | null;
@@ -32,366 +44,515 @@ interface CandlestickChartProps {
   error?: APIError | null;
 }
 
-/**
- * Convert ISO 8601 timestamp to Unix timestamp (seconds)
- * lightweight-charts requires Unix timestamps in seconds
- */
-const convertToUnixTime = (isoTime: string): UTCTimestamp => {
-  return Math.floor(new Date(isoTime).getTime() / 1000) as UTCTimestamp;
+interface NormalizedChartPoint {
+  isoTime: string;
+  timestampMs: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  volumeColor: string;
+}
+
+interface VolumeDatum {
+  value: number;
+  itemStyle: {
+    color: string;
+  };
+}
+
+interface NormalizedChartData {
+  points: NormalizedChartPoint[];
+  categories: string[];
+  candles: [number, number, number, number][];
+  volumes: VolumeDatum[];
+  useIntradayAxisLabels: boolean;
+}
+
+type TradingEChartsOption = ComposeOption<
+  | GridComponentOption
+  | TooltipComponentOption
+  | DataZoomComponentOption
+  | AxisPointerComponentOption
+  | CandlestickSeriesOption
+  | BarSeriesOption
+>;
+
+const EMPTY_CHART_DATA: NormalizedChartData = {
+  points: [],
+  categories: [],
+  candles: [],
+  volumes: [],
+  useIntradayAxisLabels: false,
 };
 
-/**
- * Convert backend OHLCV data to lightweight-charts candlestick format
- */
-const convertToCandlestickData = (data: OHLCVResponse): CandlestickData[] => {
-  return data.data.map((point) => ({
-    time: convertToUnixTime(point.time),
-    open: point.open,
-    high: point.high,
-    low: point.low,
-    close: point.close,
-  }));
+const HAS_TIMEZONE_SUFFIX = /(Z|[+-]\d{2}:\d{2})$/i;
+const UP_COLOR = '#22c55e';
+const DOWN_COLOR = '#ef4444';
+const GRID_COLOR = '#262626';
+const AXIS_TEXT_COLOR = '#94a3b8';
+const CHART_BG = '#0f0f0f';
+const VOLUME_WINDOW_SIZE = 150;
+
+const AXIS_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: '2-digit',
+});
+
+const AXIS_INTRADAY_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+const TOOLTIP_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+const PRICE_FORMATTER = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const VOLUME_FORMATTER = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 2,
+});
+
+const toEpochMs = (isoTime: string): number | null => {
+  const normalizedTime = HAS_TIMEZONE_SUFFIX.test(isoTime) ? isoTime : `${isoTime}Z`;
+  const timestampMs = Date.parse(normalizedTime);
+  return Number.isFinite(timestampMs) ? timestampMs : null;
 };
 
-/**
- * Convert backend OHLCV data to volume histogram with directional coloring
- * Green for up days (close >= previous close), Red for down days
- */
-const convertToVolumeData = (data: OHLCVResponse): HistogramData[] => {
-  return data.data.map((point, index) => {
-    const prevClose = index > 0 ? data.data[index - 1].close : point.open;
-    const isUp = point.close >= prevClose;
+const formatAxisLabel = (isoTime: string, useIntradayAxisLabels: boolean): string => {
+  const date = new Date(isoTime);
+  return useIntradayAxisLabels
+    ? AXIS_INTRADAY_FORMATTER.format(date)
+    : AXIS_DATE_FORMATTER.format(date);
+};
 
-    return {
-      time: convertToUnixTime(point.time),
+const formatTooltipDate = (isoTime: string): string => TOOLTIP_DATE_FORMATTER.format(new Date(isoTime));
+
+const computeZoomStart = (pointCount: number): number => {
+  if (pointCount <= VOLUME_WINDOW_SIZE) {
+    return 0;
+  }
+
+  const visibleRatio = VOLUME_WINDOW_SIZE / pointCount;
+  return Math.max(0, Math.round((1 - visibleRatio) * 100));
+};
+
+const normalizeChartData = (response: OHLCVResponse | null): NormalizedChartData => {
+  if (!response || response.data.length === 0) {
+    return EMPTY_CHART_DATA;
+  }
+
+  const sortedPoints = response.data
+    .map((point) => {
+      const timestampMs = toEpochMs(point.time);
+      if (timestampMs === null) {
+        return null;
+      }
+
+      return {
+        isoTime: point.time,
+        timestampMs,
+        open: point.open,
+        high: point.high,
+        low: point.low,
+        close: point.close,
+        volume: point.volume,
+      };
+    })
+    .filter((point): point is NonNullable<typeof point> => point !== null)
+    .sort((left, right) => left.timestampMs - right.timestampMs);
+
+  if (sortedPoints.length === 0) {
+    return EMPTY_CHART_DATA;
+  }
+
+  let previousClose: number | null = null;
+  const points: NormalizedChartPoint[] = [];
+  const categories: string[] = [];
+  const candles: [number, number, number, number][] = [];
+  const volumes: VolumeDatum[] = [];
+
+  for (const point of sortedPoints) {
+    const referenceClose = previousClose ?? point.open;
+    const volumeColor = point.close >= referenceClose ? UP_COLOR : DOWN_COLOR;
+
+    points.push({
+      ...point,
+      volumeColor,
+    });
+
+    categories.push(point.isoTime);
+    candles.push([point.open, point.close, point.low, point.high]);
+    volumes.push({
       value: point.volume,
-      color: isUp ? '#22c55e' : '#ef4444',
-    };
-  });
+      itemStyle: { color: volumeColor },
+    });
+
+    previousClose = point.close;
+  }
+
+  const firstPointTime = points[0]?.timestampMs ?? 0;
+  const lastPointTime = points[points.length - 1]?.timestampMs ?? 0;
+  const timeRangeMs = lastPointTime - firstPointTime;
+  const useIntradayAxisLabels = timeRangeMs <= 7 * 24 * 60 * 60 * 1000;
+
+  return {
+    points,
+    categories,
+    candles,
+    volumes,
+    useIntradayAxisLabels,
+  };
+};
+
+const buildChartOption = (chartData: NormalizedChartData): TradingEChartsOption => {
+  const hasData = chartData.points.length > 0;
+  const zoomStart = computeZoomStart(chartData.points.length);
+
+  const tooltipFormatter: NonNullable<TooltipComponentOption['formatter']> = (params: unknown) => {
+    const normalizedParams = Array.isArray(params) ? params : [params];
+
+    const firstDataIndex = normalizedParams
+      .map((entry) => {
+        if (typeof entry !== 'object' || entry === null || !('dataIndex' in entry)) {
+          return null;
+        }
+
+        const dataIndex = (entry as { dataIndex?: unknown }).dataIndex;
+        return typeof dataIndex === 'number' ? dataIndex : null;
+      })
+      .find((dataIndex): dataIndex is number => dataIndex !== null);
+
+    if (firstDataIndex === undefined) {
+      return '';
+    }
+
+    const point = chartData.points[firstDataIndex];
+    if (!point) {
+      return '';
+    }
+
+    return [
+      `<div style="font-family:'JetBrains Mono','Roboto Mono',monospace;">`,
+      `<div style="margin-bottom:6px;color:#e2e8f0;">${formatTooltipDate(point.isoTime)}</div>`,
+      `<div style="color:${UP_COLOR};">Open: ${PRICE_FORMATTER.format(point.open)}</div>`,
+      `<div style="color:#38bdf8;">High: ${PRICE_FORMATTER.format(point.high)}</div>`,
+      `<div style="color:#f97316;">Low: ${PRICE_FORMATTER.format(point.low)}</div>`,
+      `<div style="color:${DOWN_COLOR};">Close: ${PRICE_FORMATTER.format(point.close)}</div>`,
+      `<div style="margin-top:6px;color:${point.volumeColor};">Vol: ${VOLUME_FORMATTER.format(point.volume)}</div>`,
+      `</div>`,
+    ].join('');
+  };
+
+  return {
+    animation: false,
+    backgroundColor: CHART_BG,
+    axisPointer: {
+      link: [{ xAxisIndex: [0, 1] }],
+      label: {
+        backgroundColor: '#1e293b',
+      },
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: {
+        type: 'cross',
+      },
+      borderColor: '#334155',
+      borderWidth: 1,
+      backgroundColor: 'rgba(15, 23, 42, 0.95)',
+      textStyle: {
+        color: '#e2e8f0',
+        fontFamily: "'JetBrains Mono', 'Roboto Mono', monospace",
+        fontSize: 12,
+      },
+      formatter: tooltipFormatter,
+    },
+    grid: [
+      {
+        left: 56,
+        right: 56,
+        top: 20,
+        height: '65%',
+      },
+      {
+        left: 56,
+        right: 56,
+        top: '76%',
+        height: '14%',
+      },
+    ],
+    xAxis: [
+      {
+        type: 'category',
+        data: chartData.categories,
+        boundaryGap: false,
+        axisLine: {
+          lineStyle: {
+            color: GRID_COLOR,
+          },
+        },
+        axisTick: {
+          show: false,
+        },
+        axisLabel: {
+          color: AXIS_TEXT_COLOR,
+          fontFamily: "'JetBrains Mono', 'Roboto Mono', monospace",
+          formatter: (value: string) => formatAxisLabel(value, chartData.useIntradayAxisLabels),
+        },
+        min: 'dataMin',
+        max: 'dataMax',
+      },
+      {
+        type: 'category',
+        gridIndex: 1,
+        data: chartData.categories,
+        boundaryGap: false,
+        axisLine: {
+          lineStyle: {
+            color: GRID_COLOR,
+          },
+        },
+        axisTick: {
+          show: false,
+        },
+        axisLabel: {
+          show: false,
+        },
+        min: 'dataMin',
+        max: 'dataMax',
+      },
+    ],
+    yAxis: [
+      {
+        scale: true,
+        position: 'right',
+        axisLine: {
+          show: true,
+          lineStyle: {
+            color: GRID_COLOR,
+          },
+        },
+        splitLine: {
+          lineStyle: {
+            color: GRID_COLOR,
+          },
+        },
+        axisLabel: {
+          color: AXIS_TEXT_COLOR,
+          fontFamily: "'JetBrains Mono', 'Roboto Mono', monospace",
+          formatter: (value: number) => PRICE_FORMATTER.format(value),
+        },
+      },
+      {
+        scale: true,
+        gridIndex: 1,
+        position: 'right',
+        splitNumber: 2,
+        axisLine: {
+          show: true,
+          lineStyle: {
+            color: GRID_COLOR,
+          },
+        },
+        axisTick: {
+          show: false,
+        },
+        splitLine: {
+          show: false,
+        },
+        axisLabel: {
+          color: AXIS_TEXT_COLOR,
+          fontFamily: "'JetBrains Mono', 'Roboto Mono', monospace",
+          formatter: (value: number) => VOLUME_FORMATTER.format(value),
+        },
+      },
+    ],
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: [0, 1],
+        start: hasData ? zoomStart : 0,
+        end: 100,
+        zoomLock: false,
+      },
+      {
+        type: 'slider',
+        xAxisIndex: [0, 1],
+        bottom: 8,
+        height: 20,
+        start: hasData ? zoomStart : 0,
+        end: 100,
+        borderColor: '#334155',
+        backgroundColor: '#0f172a',
+        fillerColor: 'rgba(59, 130, 246, 0.2)',
+        dataBackground: {
+          areaStyle: { color: 'rgba(148, 163, 184, 0.2)' },
+          lineStyle: { color: '#64748b' },
+        },
+        handleStyle: {
+          color: '#3b82f6',
+          borderColor: '#3b82f6',
+        },
+        textStyle: {
+          color: AXIS_TEXT_COLOR,
+          fontFamily: "'JetBrains Mono', 'Roboto Mono', monospace",
+        },
+      },
+    ],
+    series: [
+      {
+        name: 'Price',
+        type: 'candlestick',
+        data: chartData.candles,
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        itemStyle: {
+          color: UP_COLOR,
+          color0: DOWN_COLOR,
+          borderColor: UP_COLOR,
+          borderColor0: DOWN_COLOR,
+        },
+      },
+      {
+        name: 'Volume',
+        type: 'bar',
+        data: chartData.volumes,
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        barMaxWidth: 12,
+      },
+    ],
+  };
 };
 
 function CandlestickChartComponent({ data, loading, error }: CandlestickChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const [isChartReady, setIsChartReady] = useState(false);
+  const chartRef = useRef<EChartsType | null>(null);
 
-  // Memoize data conversion to avoid unnecessary recalculations
-  const candlestickData = useMemo(() => {
-    if (!data || data.data.length === 0) return [];
-    return convertToCandlestickData(data);
-  }, [data]);
+  const chartData = useMemo(() => normalizeChartData(data), [data]);
+  const chartOption = useMemo(() => buildChartOption(chartData), [chartData]);
+  const hasData = chartData.points.length > 0;
 
-  const volumeData = useMemo(() => {
-    if (!data || data.data.length === 0) return [];
-    return convertToVolumeData(data);
-  }, [data]);
-
-  // Resize handler - defined outside useEffect so it can be reused
-  const handleResize = useCallback(() => {
-    if (!chartContainerRef.current || !chartRef.current) return;
-    
-    const { width, height } = chartContainerRef.current.getBoundingClientRect();
-    console.log('[CandlestickChart] Resize detected:', { width, height });
-    
-    // Only resize if we have valid dimensions
-    if (width > 0 && height > 0) {
-      chartRef.current.applyOptions({
-        width: Math.floor(width),
-        height: Math.floor(height),
-      });
-    }
-  }, []);
-
-  // Initialize chart on mount
   useEffect(() => {
-    console.log('[CandlestickChart] Initializing chart');
-
     if (!chartContainerRef.current) {
-      console.error('[CandlestickChart] Chart container ref is null');
       return;
     }
 
-    // CRITICAL: Get dimensions BEFORE creating chart
-    // Use fallback dimensions if container not yet sized
-    const rect = chartContainerRef.current.getBoundingClientRect();
-    const initialWidth = rect.width > 0 ? Math.floor(rect.width) : 800;
-    const initialHeight = rect.height > 0 ? Math.floor(rect.height) : 500;
-    
-    console.log('[CandlestickChart] Creating chart with dimensions:', { initialWidth, initialHeight });
-
-    // Create chart with EXPLICIT dimensions - this is critical!
-    const chart = createChart(chartContainerRef.current, {
-      width: initialWidth,
-      height: initialHeight,
-      layout: {
-        background: { type: ColorType.Solid, color: '#0f0f0f' },
-        textColor: '#a3a3a3',
-        fontFamily: "'JetBrains Mono', 'Roboto Mono', monospace",
-      },
-      grid: {
-        vertLines: { color: '#262626', style: 1, visible: true },
-        horzLines: { color: '#262626', style: 1, visible: true },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: {
-          color: '#3b82f6',
-          width: 1,
-          style: 3,
-          labelBackgroundColor: '#1e293b',
-        },
-        horzLine: {
-          color: '#3b82f6',
-          width: 1,
-          style: 3,
-          labelBackgroundColor: '#1e293b',
-        },
-      },
-      timeScale: {
-        borderColor: '#262626',
-        timeVisible: true,
-        secondsVisible: false,
-        rightOffset: 12,
-        barSpacing: 8,
-        minBarSpacing: 4,
-      },
-      rightPriceScale: {
-        borderColor: '#262626',
-        scaleMargins: {
-          top: 0.1,
-          bottom: 0.2, // Leave room for volume at bottom
-        },
-      },
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: true,
-      },
-      handleScale: {
-        axisPressedMouseMove: true,
-        mouseWheel: true,
-        pinch: true,
-      },
+    const chart = init(chartContainerRef.current, undefined, {
+      renderer: 'canvas',
     });
-
-    console.log('[CandlestickChart] Chart instance created');
-
-    // Add candlestick series FIRST (v5 API)
-    const candlestickSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#22c55e',
-      downColor: '#ef4444',
-      borderUpColor: '#22c55e',
-      borderDownColor: '#ef4444',
-      wickUpColor: '#22c55e',
-      wickDownColor: '#ef4444',
-      priceFormat: {
-        type: 'price',
-        precision: 2,
-        minMove: 0.01,
-      },
-    });
-
-    console.log('[CandlestickChart] Candlestick series added');
-
-    // Add volume histogram series on a SEPARATE price scale (v5 API)
-    // Using 'volume' as the priceScaleId to create a dedicated scale
-    const volumeSeries = chart.addSeries(HistogramSeries, {
-      priceFormat: {
-        type: 'volume',
-      },
-      priceScaleId: 'volume', // Use a named scale instead of empty string
-    });
-
-    // Configure the volume price scale to occupy bottom 20% of chart
-    volumeSeries.priceScale().applyOptions({
-      scaleMargins: {
-        top: 0.8,
-        bottom: 0,
-      },
-    });
-
-    console.log('[CandlestickChart] Volume series added');
 
     chartRef.current = chart;
-    candlestickSeriesRef.current = candlestickSeries;
-    volumeSeriesRef.current = volumeSeries;
 
-    // Set up ResizeObserver for responsive sizing
-    const resizeObserver = new ResizeObserver((entries) => {
-      // Use requestAnimationFrame to avoid layout thrashing
-      window.requestAnimationFrame(() => {
-        if (!entries || !entries.length) return;
-        handleResize();
+    const resizeObserver = new ResizeObserver(() => {
+      chart.resize({
+        animation: {
+          duration: 0,
+        },
       });
     });
 
     resizeObserver.observe(chartContainerRef.current);
 
-    // Mark chart as ready AFTER a small delay to ensure DOM is settled
-    // This helps with the initial resize
-    const readyTimeout = setTimeout(() => {
-      handleResize(); // Force initial resize
-      setIsChartReady(true);
-      console.log('[CandlestickChart] Chart ready');
-    }, 100);
-
-    // Cleanup on unmount
     return () => {
-      console.log('[CandlestickChart] Cleaning up');
-      clearTimeout(readyTimeout);
       resizeObserver.disconnect();
-      if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
-      }
-      candlestickSeriesRef.current = null;
-      volumeSeriesRef.current = null;
-      setIsChartReady(false);
+      chart.dispose();
+      chartRef.current = null;
     };
-  }, [handleResize]);
+  }, []);
 
-  // Update chart data when data prop changes
   useEffect(() => {
-    console.log('[CandlestickChart] Data update check:', {
-      isChartReady,
-      candlestickDataLength: candlestickData.length,
-      volumeDataLength: volumeData.length,
-      hasCandlestickSeries: !!candlestickSeriesRef.current,
-      hasVolumeSeries: !!volumeSeriesRef.current,
+    if (!chartRef.current) {
+      return;
+    }
+
+    chartRef.current.setOption(chartOption, {
+      notMerge: true,
+      lazyUpdate: true,
     });
+  }, [chartOption]);
 
-    if (!isChartReady) {
-      console.log('[CandlestickChart] Chart not ready, skipping data update');
-      return;
-    }
-
-    if (candlestickData.length === 0) {
-      console.log('[CandlestickChart] No data to display');
-      return;
-    }
-
-    if (!candlestickSeriesRef.current || !volumeSeriesRef.current) {
-      console.log('[CandlestickChart] Series refs not available');
-      return;
-    }
-
-    try {
-      console.log('[CandlestickChart] Setting data:', {
-        candlesticks: candlestickData.length,
-        volumes: volumeData.length,
-        firstCandle: candlestickData[0],
-        lastCandle: candlestickData[candlestickData.length - 1],
-      });
-
-      // Set the data
-      candlestickSeriesRef.current.setData(candlestickData);
-      volumeSeriesRef.current.setData(volumeData);
-
-      // Fit content to view
-      if (chartRef.current) {
-        chartRef.current.timeScale().fitContent();
-      }
-
-      console.log('[CandlestickChart] Data updated successfully');
-    } catch (err) {
-      console.error('[CandlestickChart] Failed to update chart data:', err);
-    }
-  }, [candlestickData, volumeData, isChartReady]);
-
-  // Loading state
-  if (loading) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-[#0f0f0f]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 border-2 border-[#3b82f6] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-[#64748b] font-mono">Loading chart data...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-[#0f0f0f]">
-        <div className="flex flex-col items-center gap-3 max-w-md px-6">
-          <div className="w-12 h-12 rounded-full bg-[#ef4444]/10 flex items-center justify-center">
-            <svg
-              className="w-6 h-6 text-[#ef4444]"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-          </div>
-          <div className="text-center">
-            <h3 className="text-sm font-medium text-[#e2e8f0] mb-1">Failed to load chart</h3>
-            <p className="text-xs text-[#64748b] font-mono">{error.message}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Empty state - show when no data and not loading
-  if (!data || data.data.length === 0) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-[#0f0f0f]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-[#262626] flex items-center justify-center">
-            <svg
-              className="w-6 h-6 text-[#64748b]"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-              />
-            </svg>
-          </div>
-          <p className="text-sm text-[#64748b] font-mono">No chart data available</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Chart view
-  // CRITICAL: The container needs a fixed height or use absolute positioning
   return (
-    <div 
-      style={{ 
-        width: '100%', 
-        height: '100%', 
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
         position: 'relative',
-        backgroundColor: '#0f0f0f',
+        backgroundColor: CHART_BG,
       }}
     >
-      <div 
+      <div
         ref={chartContainerRef}
         style={{
           position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
+          inset: 0,
         }}
       />
+
+      {loading && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0f0f0f]/85">
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#3b82f6] border-t-transparent" />
+            <p className="font-mono text-sm text-[#64748b]">Loading chart data...</p>
+          </div>
+        </div>
+      )}
+
+      {!loading && error && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0f0f0f]/90">
+          <div className="flex max-w-md flex-col items-center gap-3 px-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#ef4444]/10">
+              <svg className="h-6 w-6 text-[#ef4444]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <div className="text-center">
+              <h3 className="mb-1 text-sm font-medium text-[#e2e8f0]">Failed to load chart</h3>
+              <p className="font-mono text-xs text-[#64748b]">{error.message}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!loading && !error && !hasData && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0f0f0f]/90">
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#262626]">
+              <svg className="h-6 w-6 text-[#64748b]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                />
+              </svg>
+            </div>
+            <p className="font-mono text-sm text-[#64748b]">No chart data available</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// Export memoized component to prevent unnecessary re-renders
 export const CandlestickChart = memo(CandlestickChartComponent);

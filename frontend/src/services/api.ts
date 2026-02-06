@@ -18,6 +18,29 @@ class APIClient {
     this.baseURL = baseURL;
   }
 
+  private createURL(path: string, params?: Record<string, string>): string {
+    const url = new URL(`${API_PREFIX}${path}`, this.baseURL);
+
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        url.searchParams.set(key, value);
+      });
+    }
+
+    return url.toString();
+  }
+
+  private isAPIError(error: unknown): error is APIError {
+    if (typeof error !== 'object' || error === null) return false;
+    return 'message' in error && ('status' in error || 'details' in error);
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return error instanceof DOMException
+      ? error.name === 'AbortError'
+      : (error as Error).name === 'AbortError';
+  }
+
   private async handleResponse<T>(response: Response, schema?: z.ZodSchema<T>): Promise<T> {
     if (!response.ok) {
       const errorBody = await response.text().catch(() => 'Unknown error');
@@ -67,25 +90,29 @@ class APIClient {
    * @returns OHLCV data with metadata
    */
   async fetchOHLCV(ticker: string, period: Period, signal?: AbortSignal): Promise<OHLCVResponse> {
-    const url = `${this.baseURL}${API_PREFIX}/stocks/${ticker.toUpperCase()}/ohlcv?period=${period}`;
+    const normalizedTicker = ticker.trim().toUpperCase();
+    const url = this.createURL(`/stocks/${encodeURIComponent(normalizedTicker)}/ohlcv`, {
+      period,
+    });
 
     try {
       const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         signal,
       });
 
       return await this.handleResponse<OHLCVResponse>(response, OHLCVResponseSchema);
     } catch (error) {
-      if ((error as APIError).status) {
+      if (this.isAbortError(error)) {
+        throw error;
+      }
+
+      if (this.isAPIError(error)) {
         throw error;
       }
 
       throw {
-        message: `Failed to fetch OHLCV data for ${ticker}: ${(error as Error).message}`,
+        message: `Failed to fetch OHLCV data for ${normalizedTicker}: ${(error as Error).message}`,
         details: error,
       } as APIError;
     }
@@ -98,25 +125,27 @@ class APIClient {
    * @returns Stock information including price, market cap, sector, etc.
    */
   async fetchStockInfo(ticker: string, signal?: AbortSignal): Promise<StockInfo> {
-    const url = `${this.baseURL}${API_PREFIX}/stocks/${ticker.toUpperCase()}/info`;
+    const normalizedTicker = ticker.trim().toUpperCase();
+    const url = this.createURL(`/stocks/${encodeURIComponent(normalizedTicker)}/info`);
 
     try {
       const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         signal,
       });
 
       return await this.handleResponse<StockInfo>(response, StockInfoSchema);
     } catch (error) {
-      if ((error as APIError).status) {
+      if (this.isAbortError(error)) {
+        throw error;
+      }
+
+      if (this.isAPIError(error)) {
         throw error;
       }
 
       throw {
-        message: `Failed to fetch stock info for ${ticker}: ${(error as Error).message}`,
+        message: `Failed to fetch stock info for ${normalizedTicker}: ${(error as Error).message}`,
         details: error,
       } as APIError;
     }

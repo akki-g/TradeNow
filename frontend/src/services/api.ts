@@ -5,8 +5,8 @@
  */
 
 import { z } from 'zod';
-import type { OHLCVResponse, StockInfo, Period, APIError } from '../types/stock';
-import { OHLCVResponseSchema, StockInfoSchema } from '../types/stock';
+import type { OHLCVResponse, StockInfo, Period, APIError, SearchResult } from '../types/stock';
+import { OHLCVResponseSchema, StockInfoSchema, SearchResultsSchema } from '../types/stock';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const API_PREFIX = '/api/v1';
@@ -150,7 +150,47 @@ class APIClient {
       } as APIError;
     }
   }
+  /**
+ * search stock by ticker or company name
+ * @param query 
+ * @param limit
+ * @param signal - optional AbortSignal for request cancel
+ * @returns array of matching stocks
+ */
+  async searchStocks(query: string, limit: number = 10, signal?: AbortSignal): Promise<SearchResult[]> {
+    if (! query || query.trim().length === 0){
+      return [];
+    }
+
+    const url = this.createURL('/stocks/search', {
+      q: query.trim(),
+      limit: limit.toString(),
+    });
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal,
+      });
+
+      return await this.handleResponse<SearchResult[]>(response, SearchResultsSchema);
+    } catch (error) {
+      if (this.isAbortError(error)){
+        throw error;
+      }
+      if (this.isAPIError(error)){
+        throw error;
+      }
+
+      throw {
+        message: 'Failed to search stocks for "${query}": ${(error as Error).message}',
+        details: error,
+      } as APIError;
+    }
+    
+  }
 }
+
 
 // Export singleton instance
 export const apiClient = new APIClient();
@@ -161,3 +201,6 @@ export const fetchOHLCV = (ticker: string, period: Period, signal?: AbortSignal)
 
 export const fetchStockInfo = (ticker: string, signal?: AbortSignal) =>
   apiClient.fetchStockInfo(ticker, signal);
+
+export const searchStocks = (query: string, limit?: number, signal?: AbortSignal) =>
+  apiClient.searchStocks(query, limit, signal);

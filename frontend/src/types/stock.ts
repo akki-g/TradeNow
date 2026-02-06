@@ -54,3 +54,25 @@ export interface APIError {
   status?: number;
   details?: unknown;
 }
+
+
+// search res schemas for stock search
+
+export const SearchResultSchema = z.object({
+  ticker: z.string(),
+  name: z.string(),
+  exchange: z.string().optional(),
+  sector: z.string().optional()
+});
+
+export type SearchResult = z.infer<typeof SearchResultSchema>;
+
+// array of search res schema
+
+export const SearchResultsSchema = z.array(SearchResultSchema);
+
+export interface RecentlyViewedStock {
+  ticker: string;
+  name: string;
+  viewedAt: number;
+}

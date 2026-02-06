@@ -29,3 +29,8 @@ class StockInfo(BaseModel):
     change: Optional[float] = None
     change_percent: Optional[float] = None
 
+class SearchResult(BaseModel):
+    ticker: str
+    name: str
+    exchange: Optional[str]
+    sector: Optional[str]

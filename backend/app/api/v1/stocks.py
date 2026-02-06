@@ -5,8 +5,12 @@ from typing import Optional
 from app.db.base import get_session
 from app.services.stock_service import StockDataService
 from app.schemas.stock import OHLCVResponse, StockInfo
+from app.utils.search import StockSearchService
+
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
+
+search_service = StockSearchService()
 
 @router.get("/{ticker}/ohlcv", response_model=OHLCVResponse)
 async def get_ohlcv(
@@ -37,3 +41,25 @@ async def get_stock_info(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching stock infor: {str(e)}")
     
+
+@router.get("/search")
+async def search_stocks(
+    q: str = Query(..., min_length=1, description="Search Query"),
+    limit: int = Query(10, ge=1, le=50)
+):
+    
+    try:
+        res = search_service.search(q, limit=limit)
+        print(res)
+        return [
+            {
+                "ticker": r.ticker,
+                "name": r.name,
+                "exchange": r.exchange,
+                "sector": r.sector
+            }
+            for r in res
+        ]
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

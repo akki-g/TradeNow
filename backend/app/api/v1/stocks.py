@@ -50,7 +50,6 @@ async def search_stocks(
     
     try:
         res = search_service.search(q, limit=limit)
-        print(res)
         return [
             {
                 "ticker": r.ticker,

@@ -1,10 +1,8 @@
 import yfinance as yf
-import pandas as pd
 from datetime import datetime, timedelta, date
-from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert, func
-from sqlalchemy.dialects.postgresql import insert 
+from sqlalchemy import select, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 import asyncio
 import logging
 from app.models.stock import Stock, OHLCVDaily
@@ -36,18 +34,28 @@ class StockDataService:
         
         # fetch stock info from yf
         stock_info = await self._fetch_stock_info(ticker)
-        stock = Stock(
+        
+        stmt = pg_insert(Stock).values(
             ticker=ticker.upper(),
-            name = stock_info.get('longName', ticker),
-            exchange=stock_info.get('exchange'), 
+            name=stock_info.get('longName', ticker),
+            exchange=stock_info.get('exchange'),
             sector=stock_info.get('industry'),
-            market_cap=stock_info.get('marketCap')
+            market_cap=stock_info.get('marketCap'),
+            is_active=True
+        ).on_conflict_do_nothing(index_elements=['ticker'])
+
+        await self.session.execute(stmt)
+        await self.session.commit()
+
+
+        result = await self.session.execute(
+            select(Stock).where(Stock.ticker == ticker.upper())
         )
 
-        self.session.add(stock)
-        await self.session.commit()
-        await self.session.refresh(stock)
+        stock = result.scalar_one_or_none()
 
+        if not stock:
+            raise Exception(f"Failed to get or create stock: {ticker}")
 
         return stock
 
@@ -187,7 +195,7 @@ class StockDataService:
 
         for i in range(0, total_records, self.BATCH_SIZE):
             batch = records[i:i+self.BATCH_SIZE]
-            stmt = insert(OHLCVDaily).values(batch)
+            stmt = pg_insert(OHLCVDaily).values(batch)
             stmt = stmt.on_conflict_do_update(
                 index_elements=['stock_id', 'time'],
                 set_ = {

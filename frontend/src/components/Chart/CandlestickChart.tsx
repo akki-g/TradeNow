@@ -156,25 +156,36 @@ const normalizeChartData = (response: OHLCVResponse | null): NormalizedChartData
     return EMPTY_CHART_DATA;
   }
 
-  const sortedPoints = response.data
-    .map((point) => {
-      const timestampMs = toEpochMs(point.time);
-      if (timestampMs === null) {
-        return null;
-      }
+  const parsedPoints: Omit<NormalizedChartPoint, 'volumeColor'>[] = [];
+  let isAlreadySorted = true;
+  let previousTimestamp = Number.NEGATIVE_INFINITY;
 
-      return {
-        isoTime: point.time,
-        timestampMs,
-        open: point.open,
-        high: point.high,
-        low: point.low,
-        close: point.close,
-        volume: point.volume,
-      };
-    })
-    .filter((point): point is NonNullable<typeof point> => point !== null)
-    .sort((left, right) => left.timestampMs - right.timestampMs);
+  for (const point of response.data) {
+    const timestampMs = toEpochMs(point.time);
+    if (timestampMs === null) {
+      continue;
+    }
+
+    if (timestampMs < previousTimestamp) {
+      isAlreadySorted = false;
+    }
+
+    parsedPoints.push({
+      isoTime: point.time,
+      timestampMs,
+      open: point.open,
+      high: point.high,
+      low: point.low,
+      close: point.close,
+      volume: point.volume,
+    });
+
+    previousTimestamp = timestampMs;
+  }
+
+  const sortedPoints = isAlreadySorted
+    ? parsedPoints
+    : [...parsedPoints].sort((left, right) => left.timestampMs - right.timestampMs);
 
   if (sortedPoints.length === 0) {
     return EMPTY_CHART_DATA;
@@ -482,7 +493,7 @@ function CandlestickChartComponent({ data, loading, error }: CandlestickChartPro
     }
 
     chartRef.current.setOption(chartOption, {
-      notMerge: true,
+      notMerge: false,
       lazyUpdate: true,
     });
   }, [chartOption]);

@@ -16,6 +16,7 @@ import { StockHeader } from '../components/StockHeader';
 import { TimeframeSelector } from '../components/TimeframeSelector';
 import { CandlestickChart } from '../components/Chart';
 import { useStockData } from '../hooks/useStockData';
+import { useStockInfo } from '../hooks/useStockInfo';
 import type { Period } from '../types/stock';
 
 export function FullDashboardDemo() {
@@ -24,12 +25,13 @@ export function FullDashboardDemo() {
 
   // Fetch stock data using the hook
   const { data, loading, error } = useStockData(ticker, period);
+  const { info, loading: infoLoading } = useStockInfo(ticker);
 
   return (
     <DashboardLayout
       header={
         <div className="space-y-3">
-          <StockHeader ticker={ticker} />
+          <StockHeader info={info} loading={infoLoading} />
           <TimeframeSelector selected={period} onChange={setPeriod} />
         </div>
       }

@@ -133,17 +133,12 @@ export function useStockData(ticker: string, period: Period): UseStockDataReturn
 
     const cachedEntry = stockDataCache.get(cacheKey);
     if (cachedEntry && isCacheFresh(cachedEntry)) {
-      const cacheUpdateTimeout = setTimeout(() => {
-        setState({
-          data: cachedEntry.data,
-          loading: false,
-          error: null,
-        });
-      }, 0);
-
-      return () => {
-        clearTimeout(cacheUpdateTimeout);
-      };
+      setState({
+        data: cachedEntry.data,
+        loading: false,
+        error: null,
+      });
+      return;
     }
 
     const abortController = new AbortController();

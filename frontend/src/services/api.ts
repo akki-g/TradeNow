@@ -7,6 +7,8 @@
 import { z } from 'zod';
 import type { OHLCVResponse, StockInfo, Period, APIError, SearchResult } from '../types/stock';
 import { OHLCVResponseSchema, StockInfoSchema, SearchResultsSchema } from '../types/stock';
+import type { DatabaseOverview, DatabaseTableRowsResponse } from '../types/database';
+import { DatabaseOverviewSchema, DatabaseTableRowsSchema } from '../types/database';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const API_PREFIX = '/api/v1';
@@ -189,6 +191,74 @@ class APIClient {
     }
     
   }
+
+  /**
+   * Fetch database schema metadata, row counts, and sample records.
+   */
+  async fetchDatabaseOverview(sampleLimit: number = 5, signal?: AbortSignal): Promise<DatabaseOverview> {
+    const url = this.createURL('/database/overview', {
+      sample_limit: sampleLimit.toString(),
+    });
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal,
+      });
+
+      return await this.handleResponse<DatabaseOverview>(response, DatabaseOverviewSchema);
+    } catch (error) {
+      if (this.isAbortError(error)) {
+        throw error;
+      }
+
+      if (this.isAPIError(error)) {
+        throw error;
+      }
+
+      throw {
+        message: `Failed to fetch database overview: ${(error as Error).message}`,
+        details: error,
+      } as APIError;
+    }
+  }
+
+  /**
+   * Fetch paginated rows for a table in the database explorer.
+   */
+  async fetchDatabaseTableRows(
+    tableName: string,
+    limit: number = 50,
+    offset: number = 0,
+    signal?: AbortSignal
+  ): Promise<DatabaseTableRowsResponse> {
+    const url = this.createURL(`/database/tables/${encodeURIComponent(tableName)}/rows`, {
+      limit: limit.toString(),
+      offset: offset.toString(),
+    });
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal,
+      });
+
+      return await this.handleResponse<DatabaseTableRowsResponse>(response, DatabaseTableRowsSchema);
+    } catch (error) {
+      if (this.isAbortError(error)) {
+        throw error;
+      }
+
+      if (this.isAPIError(error)) {
+        throw error;
+      }
+
+      throw {
+        message: `Failed to fetch rows for table ${tableName}: ${(error as Error).message}`,
+        details: error,
+      } as APIError;
+    }
+  }
 }
 
 
@@ -204,3 +274,13 @@ export const fetchStockInfo = (ticker: string, signal?: AbortSignal) =>
 
 export const searchStocks = (query: string, limit?: number, signal?: AbortSignal) =>
   apiClient.searchStocks(query, limit, signal);
+
+export const fetchDatabaseOverview = (sampleLimit?: number, signal?: AbortSignal) =>
+  apiClient.fetchDatabaseOverview(sampleLimit, signal);
+
+export const fetchDatabaseTableRows = (
+  tableName: string,
+  limit?: number,
+  offset?: number,
+  signal?: AbortSignal
+) => apiClient.fetchDatabaseTableRows(tableName, limit, offset, signal);

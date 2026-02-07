@@ -91,5 +91,6 @@
   {"ticker": "ARKK", "name": "ARK Innovation ETF", "exchange": "NYSE", "sector": "ETF"},
   {"ticker": "GLD", "name": "SPDR Gold Trust", "exchange": "NYSE", "sector": "ETF"},
   {"ticker": "SLV", "name": "iShares Silver Trust", "exchange": "NYSE", "sector": "ETF"},
-  {"ticker": "TLT", "name": "iShares 20+ Year Treasury Bond ETF", "exchange": "NASDAQ", "sector": "ETF"}
+  {"ticker": "TLT", "name": "iShares 20+ Year Treasury Bond ETF", "exchange": "NASDAQ", "sector": "ETF"},
+  {"ticker": "LUMN", "name": "Lumen Technologies, Inc.", "exchange": "NYSE", "sector":"Communication Services"}
 ]

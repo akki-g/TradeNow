@@ -6,13 +6,11 @@ import pandas as pd
 
 
 class IndicatorCalculator: 
-    def __init__(self, session: AsyncSession):
-        self.stock_service = StockDataService(session)
+    def __init__(self):
         self.registry = indicator_registry
 
-    async def calculate(self, ticker: str, indicator_name: str, params: dict, period: str = "max") -> dict:
+    def calculate(self, ohlcv_response: OHLCVResponse, indicator_name: str, params: dict) -> dict:
 
-        ohlcv_response = await self.stock_service.get_ohlcv(ticker, period=period)
         df = self._response_to_dataframe(ohlcv_response)
 
         indicator = self.registry.get(indicator_name)
@@ -51,3 +49,6 @@ class IndicatorCalculator:
 
         return df
         
+
+
+indicator_calculator = IndicatorCalculator()

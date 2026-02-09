@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.config import settings
 from app.db.init_db import init_db
-from app.api.v1 import stocks, database
+from app.api.v1 import stocks, database, indicators
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,6 +31,7 @@ app.add_middleware(
 
 app.include_router(stocks.router, prefix="/api/v1")
 app.include_router(database.router, prefix="/api/v1")
+app.include_router(indicators.router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def startup_event():

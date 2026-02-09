@@ -10,7 +10,7 @@ class IndicatorCategory(str, Enum):
     VOLUME = "volume"
 
 class OutputType(str, Enum):
-    OVERLAY = "overlay"         # if drawn on price char
+    OVERLAY = "overlay"         # if drawn on price chart
     SEPARATE = "separate"       # if gets its own pane
 
 @dataclass

@@ -33,6 +33,7 @@ def get_indicator_info(indicator_name: str):
         name=ind.name,
         display_name=ind.display_name,
         category=ind.category,
+        output_type=ind.output_type,
         params=[IndicatorParamSchema(
             name=p.name,
             param_type= p.param_type,

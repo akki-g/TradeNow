@@ -56,6 +56,15 @@ class IndicatorRegistry:
             output_names=["upper", "middle", "lower"],
             compute_fn=impl.compute_bbands,
         ))
+        self.register(IndicatorDefinition(
+            name="rsi",
+            display_name="Relative Strength Index",
+            category=IndicatorCategory.MOMENTUM,
+            output_type=OutputType.SEPARATE,
+            params=[IndicatorParam("period", "int", default=14, min_val=2, max_val=100)],
+            output_names=["rsi"],
+            compute_fn=impl.compute_rsi,
+        ))
 
 
     def register(self, indicator: IndicatorDefinition):

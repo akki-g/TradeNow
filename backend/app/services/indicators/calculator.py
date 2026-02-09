@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from services.stock_service import StockDataService
+from app.services.stock_service import StockDataService
 from .registry import indicator_registry
-from schemas.stock import OHLCVResponse
+from app.schemas.stock import OHLCVResponse
 import pandas as pd
 
 
@@ -33,9 +33,9 @@ class IndicatorCalculator:
             }
         }
 
-    def _response_to_dataframe(response: OHLCVResponse) -> pd.DataFrame:
+    def _response_to_dataframe(self, response: OHLCVResponse) -> pd.DataFrame:
         
-        rows = [res.model_dump() for res in response]
+        rows = [res.model_dump() for res in response.data]
 
         df = pd.DataFrame(rows)
 

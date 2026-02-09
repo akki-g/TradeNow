@@ -9,7 +9,8 @@ import type { OHLCVResponse, StockInfo, Period, APIError, SearchResult } from '.
 import { OHLCVResponseSchema, StockInfoSchema, SearchResultsSchema } from '../types/stock';
 import type { DatabaseOverview, DatabaseTableRowsResponse } from '../types/database';
 import { DatabaseOverviewSchema, DatabaseTableRowsSchema } from '../types/database';
-
+import { IndicatorSummarySchema } from '../types/indicator';
+import type { IndicatorSummary } from '../types/indicator';
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const API_PREFIX = '/api/v1';
 
@@ -255,6 +256,29 @@ class APIClient {
 
       throw {
         message: `Failed to fetch rows for table ${tableName}: ${(error as Error).message}`,
+        details: error,
+      } as APIError;
+    }
+  }
+
+  async fetchIndicators(): Promise<IndicatorSummary> {
+    const url = this.createURL('/indicators/');
+    try {
+      const response = await fetch(url, {
+        method: 'GET'
+      })
+      return await this.handleResponse<IndicatorSummary>(response, IndicatorSummarySchema);
+    }
+    catch (error) {
+      if (this.isAbortError(error)){
+        throw error;
+      }
+      if (this.isAPIError(error)){
+        throw error;
+      }
+
+      throw {
+        message: 'Failed to fetch available indicators',
         details: error,
       } as APIError;
     }

@@ -9,8 +9,8 @@ import type { OHLCVResponse, StockInfo, Period, APIError, SearchResult } from '.
 import { OHLCVResponseSchema, StockInfoSchema, SearchResultsSchema } from '../types/stock';
 import type { DatabaseOverview, DatabaseTableRowsResponse } from '../types/database';
 import { DatabaseOverviewSchema, DatabaseTableRowsSchema } from '../types/database';
-import { IndicatorSummarySchema } from '../types/indicator';
-import type { IndicatorSummary } from '../types/indicator';
+import {BatchCalculateResponseSchema, CalculateResponseSchema, IndicatorDetailSchema, IndicatorSummarySchema } from '../types/indicator';
+import type { BatchCalculateRequest, BatchCalculateResponse, CalculateRequest, CalculateResponse, IndicatorDetail, IndicatorSummary } from '../types/indicator';
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const API_PREFIX = '/api/v1';
 
@@ -261,13 +261,14 @@ class APIClient {
     }
   }
 
-  async fetchIndicators(): Promise<IndicatorSummary> {
+  async fetchIndicators(signal?: AbortSignal): Promise<IndicatorSummary[]> {
     const url = this.createURL('/indicators/');
     try {
       const response = await fetch(url, {
-        method: 'GET'
+        method: 'GET',
+        signal
       })
-      return await this.handleResponse<IndicatorSummary>(response, IndicatorSummarySchema);
+      return await this.handleResponse<IndicatorSummary[]>(response, z.array(IndicatorSummarySchema));
     }
     catch (error) {
       if (this.isAbortError(error)){
@@ -280,6 +281,95 @@ class APIClient {
       throw {
         message: 'Failed to fetch available indicators',
         details: error,
+      } as APIError;
+    }
+  }
+
+  async fetchIndicatorInfo(name: string, signal?: AbortSignal): Promise<IndicatorDetail> {
+    const url = this.createURL(`/indicators/${encodeURIComponent(name)}`);
+
+    try {
+      const response = await fetch(url, {
+        method:'GET',
+        signal: signal
+      })
+
+      return await this.handleResponse<IndicatorDetail>(response, IndicatorDetailSchema);
+    }
+    catch (error) {
+      if (this.isAbortError(error)){
+        throw error;
+      }
+
+      if (this.isAPIError(error)){
+        throw error;
+      }
+
+      throw {
+        message: `Failed to fetch details about indicator ${encodeURIComponent(name)}`,
+        details: error
+      } as APIError;
+    }
+  }
+
+  async fetchCalculateIndicator(request: CalculateRequest, signal?: AbortSignal): Promise<CalculateResponse>{
+    const url = this.createURL(`/indicators/calculate/`);
+    
+    try { 
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(request),
+        signal: signal
+      });
+    
+      return await this.handleResponse<CalculateResponse>(response, CalculateResponseSchema);
+    }
+    catch (error){
+      if (this.isAbortError(error)){
+        throw error;
+      }
+
+      if (this.isAPIError(error)){
+        throw error;
+      }
+
+      throw {
+        message: `Could not Calculate ${encodeURIComponent(request.indicator_name)} for ${encodeURIComponent(request.ticker)}`,
+        details: error  
+      } as APIError;
+    }
+  }
+
+  async fetchBatchCalculateIndicator(request: BatchCalculateRequest, signal?: AbortSignal): Promise<BatchCalculateResponse> {
+    const url = this.createURL('/indicators/calculate-batch/');
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(request),
+        signal: signal
+      });
+
+      return await this.handleResponse<BatchCalculateResponse>(response, BatchCalculateResponseSchema); 
+    }
+    catch (error) {
+      if (this.isAbortError(error)) {
+        throw error;
+      }
+
+      if (this.isAPIError(error)){
+        throw error;
+      }
+      
+      throw {
+        message: 'Failed to process Batch Calculate Request',
+        details: error
       } as APIError;
     }
   }
@@ -308,3 +398,9 @@ export const fetchDatabaseTableRows = (
   offset?: number,
   signal?: AbortSignal
 ) => apiClient.fetchDatabaseTableRows(tableName, limit, offset, signal);
+
+
+export const fetchIndicators = (signal?: AbortSignal) => apiClient.fetchIndicators(signal);
+export const fetchIndicatorInfo = (name: string, signal?: AbortSignal) => apiClient.fetchIndicatorInfo(name, signal);
+export const fetchCalculateIndicator = (request: CalculateRequest, signal?: AbortSignal) => apiClient.fetchCalculateIndicator(request, signal);
+export const fetchBatchCalculateIndicator = (request: BatchCalculateRequest, signal?: AbortSignal) => apiClient.fetchBatchCalculateIndicator(request, signal);

@@ -10,7 +10,7 @@ interface UseIndicatorInfoResult {
     refetch: () => Promise<void>;
 }
 
-export function UseIndicatorInfo(indicator_name: string): UseIndicatorInfoResult {
+export function useIndicatorInfo(indicator_name: string): UseIndicatorInfoResult {
     const [data, setData] = useState<IndicatorDetail | null> (null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<APIError | null> (null);
@@ -61,7 +61,7 @@ export function UseIndicatorInfo(indicator_name: string): UseIndicatorInfoResult
                 abortControllerRef.current.abort();
             }
         }
-    }, [fetchIndicatorInfo]);
+    }, [fetchIndicatorDetails]);
 
     return {data, loading, error, refetch: fetchIndicatorDetails}
 }
